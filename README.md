@@ -53,6 +53,11 @@ design.
   per-service credentials it never sees, allowlisted routes — and two routes
   deliberately narrowed or refused because the upstream semantics were
   unsafe to expose.
+- **[The scripts](scripts/README.md)** — the automation behind the claims
+  above: the monthly restore drill, the weekly vulnerability scan and
+  exposure audit, the patch sweep collector, and the read-only prompt that
+  audits the scheduler itself. Real code, fix history in the comments,
+  scrubbed for publication.
 
 ## Design principles that recur
 
