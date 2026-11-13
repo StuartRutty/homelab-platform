@@ -20,15 +20,17 @@ the most legible evidence in the repo.
 | [security-sweep.py](security-sweep.py) | Weekly, Wed 09:15 | The collector half of the fleet patch/CVE sweep: per-image scan caching (a weekly run only rescans what changed), new-finding detection against a seen-set, and Node runtime version tracking against upstream release lines, including EOL detection. A decision layer reads its report; the collector itself is deterministic, no LLM. |
 | [exposure-audit.py](exposure-audit.py) | Weekly, Mon 08:30 | The exposure audit from [security-review.md](../docs/security-review.md), automated: every vhost from the proxy config is probed *through the public edge* (public-resolver lookup, `--resolve` to the edge IP — LAN split-horizon DNS would otherwise bypass the CDN entirely), classified access / public-open / unreachable, and diffed against seeded expectations, including a per-host API-path pass that catches an unintended Access bypass. Silent when the world matches expectations. |
 | [cron-hygiene-prompt.md](cron-hygiene-prompt.md) | Monthly, 1st, 10:00 | Scheduler hygiene is not a script — it's a read-only agent instruction: audit the job store for dead weight (long-paused jobs, missing scripts, superseded watchers, orphaned state files) and report removals for a human to approve. Included because the discipline — an automation that audits the automations, and is forbidden from changing anything itself — is the point. |
+| [health-check-excerpt.sh](health-check-excerpt.sh) | Every 6 hours | Excerpt of the health-check probe framework: the boot-window preflight (wait out a host reboot so a healthy restart doesn't page anyone — and still tell "Docker never came back" apart from "still booting"), the container-status probe with its expected-down exemption, and the vhost probe that re-derives its list from the proxy config on every run. See the omission note below for why this one is an excerpt. |
 
-## Deliberately not here
+## Deliberately not here (in full)
 
-The health-check probe script (the platform's main monitoring artifact)
-is omitted, and the omission is documented rather than silent: the script
-*is* the inventory. Its probe set enumerates every container, every
-deliberately-stopped service, and every LAN-only endpoint — exactly the
-service map this repo withholds by design. A faithful scrub would replace
-a third of it with placeholders and still disclose the map. What the docs
-claim about health checking stands on the pattern (preflight → probes
-with an expected-down exemption list → silent unless something real)
-rather than on that file.
+The complete health-check script — the platform's main monitoring
+artifact — is omitted, and the omission is documented rather than silent:
+the script *is* the inventory. Its probe set enumerates every container,
+every deliberately-stopped service, and every LAN-only endpoint — exactly
+the service map this repo withholds by design. A faithful scrub would
+replace a third of it with placeholders and still disclose the map. The
+framework excerpt above shows the mechanism without the map, and the
+docs' claims about health checking stand on the pattern (preflight →
+probes with an expected-down exemption list → silent unless something
+real) rather than on that file.
