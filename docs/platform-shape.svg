@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="290" viewBox="0 0 900 290" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="10" y="30" width="180" height="62" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="100" y="57" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">Public internet</text>
+  <text x="100" y="77" text-anchor="middle" font-size="12" fill="#57606a">a short, explicit list only</text>
+
+  <rect x="10" y="130" width="180" height="62" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="100" y="157" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">Private overlay</text>
+  <text x="100" y="177" text-anchor="middle" font-size="12" fill="#57606a">day-to-day access lives here</text>
+
+  <rect x="290" y="80" width="190" height="62" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
+  <text x="385" y="107" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">One reverse proxy</text>
+  <text x="385" y="127" text-anchor="middle" font-size="12" fill="#57606a">the only ingress pattern</text>
+
+  <rect x="580" y="30" width="300" height="62" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="730" y="57" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">Ops host</text>
+  <text x="730" y="77" text-anchor="middle" font-size="12" fill="#57606a">self-hosted services, automation, agent host</text>
+
+  <rect x="580" y="130" width="300" height="62" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="730" y="157" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">Media host</text>
+  <text x="730" y="177" text-anchor="middle" font-size="12" fill="#57606a">media stack and GPU workloads</text>
+
+  <rect x="290" y="200" width="190" height="56" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+  <text x="385" y="224" text-anchor="middle" font-size="14.5" font-weight="600" fill="#24292f">Agent gateway</text>
+  <text x="385" y="243" text-anchor="middle" font-size="12" fill="#57606a">one credential, allowlisted routes</text>
+
+  <path d="M 190 61 C 240 61, 240 95, 288 102" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 190 161 C 240 161, 240 125, 288 118" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 480 95 C 530 85, 530 65, 578 61" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 480 125 C 530 135, 530 155, 578 159" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 385 200 C 385 175, 500 190, 600 190" fill="none" stroke="#1a7f37" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+  <text x="450" y="282" text-anchor="middle" font-size="12.5" fill="#57606a">Zero inbound router ports. Every service a folder, a proxy block, a DNS line, and a backup entry.</text>
+</svg>
