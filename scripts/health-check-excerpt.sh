@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # health-check.sh — EXCERPT (framework sections only)
 # Cron: every 6 hours. Emits one `CHECK <probe> OK|WARN|CRIT` line per probe
 # plus a final `SUMMARY` line; always exits 0, because the cron delivery is
@@ -7,7 +8,6 @@
 # is the original file's. The full script is deliberately unpublished —
 # its probe set is effectively the service inventory (see scripts/README.md).
 #
-#!/usr/bin/env bash
 # health-check.sh — homelab health probe for the primary host's Docker stacks.
 # Output: one CHECK line per probe (OK/WARN/CRIT) + SUMMARY line. Always exit 0.
 # Read by the agent's cron job "Homelab health check" — do not print secrets.
@@ -41,28 +41,42 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 # Engine up; now wait for the proxy's published port and the DNS resolver.
+PREFLIGHT_READY=0
 while [ $SECONDS -lt $PREFLIGHT_DEADLINE ]; do
   CURLY=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1/ 2>/dev/null)
   DNS_OK=$(docker exec dns dig +short +time=1 +tries=1 @127.0.0.1 example.com 2>/dev/null | head -1)
-  [ -n "$CURLY" ] && [ -n "$DNS_OK" ] && break
+  if [ -n "$CURLY" ] && [ "$CURLY" != "000" ] && [ -n "$DNS_OK" ] && [ "${DNS_OK#;}" = "$DNS_OK" ]; then
+    PREFLIGHT_READY=1
+    break
+  fi
   sleep 10
 done
 PREFLIGHT_WAIT=$((SECONDS - PREFLIGHT_START))
-if [ "$PREFLIGHT_WAIT" -ge 15 ]; then
+if [ "$PREFLIGHT_READY" -ne 1 ]; then
+  echo "CHECK preflight CRIT — proxy or DNS not ready after ${PREFLIGHT_WAIT}s (http=${CURLY:-none}, dns=${DNS_OK:-none})"
+elif [ "$PREFLIGHT_WAIT" -ge 15 ]; then
   echo "CHECK preflight OK — Docker, proxy and DNS ready after ${PREFLIGHT_WAIT}s (host boot window absorbed)"
 fi
 
 # --- 1. Container status: anything not Up, or unhealthy -------------
-BAD=$(docker ps -a --format '{{.Names}}|{{.Status}}' | awk -F'|' -v down="$EXPECTED_DOWN" '
-  BEGIN { n = split(down, d, " "); for (i=1;i<=n;i++) skip[d[i]] = 1 }
-  $2 !~ /^Up / && !($1 in skip) {print $1" ("$2")"}
-  $2 ~ /^Up / && $2 ~ /\(unhealthy\)/ {print $1" ("$2")"}')
-if [ -z "$BAD" ]; then
-  N=$(docker ps -q | wc -l)
-  echo "CHECK containers OK — all $N containers Up, none unhealthy"
+if ! PS_OUT=$(docker ps -a --format '{{.Names}}|{{.Status}}' 2>&1); then
+  echo "CHECK containers CRIT — docker ps failed: $(printf '%s' "$PS_OUT" | head -1)"
 else
-  echo "CHECK containers CRIT — not healthy:"
-  echo "$BAD" | sed 's/^/  - /'
+  BAD=$(printf '%s\n' "$PS_OUT" | awk -F'|' -v down="$EXPECTED_DOWN" '
+    BEGIN { n = split(down, d, " "); for (i=1;i<=n;i++) skip[d[i]] = 1 }
+    NF >= 2 && $2 !~ /^Up / && !($1 in skip) {print $1" ("$2")"}
+    NF >= 2 && $2 ~ /^Up / && $2 ~ /\(unhealthy\)/ {print $1" ("$2")"}')
+  if [ -z "$BAD" ]; then
+    if PS_UP=$(docker ps -q 2>&1); then
+      N=$(printf '%s\n' "$PS_UP" | awk 'NF{c++} END{print c+0}')
+      echo "CHECK containers OK — all $N containers Up, none unhealthy"
+    else
+      echo "CHECK containers CRIT — docker ps -q failed: $(printf '%s' "$PS_UP" | head -1)"
+    fi
+  else
+    echo "CHECK containers CRIT — not healthy:"
+    echo "$BAD" | sed 's/^/  - /'
+  fi
 fi
 
 # --- 7. Service endpoints via the proxy (auto-derived from its config) ----
@@ -73,9 +87,10 @@ fi
 # other 5xx = WARN (app answering but erroring), 1xx-4xx = OK (401/30x are
 # normal auth walls / redirects).
 CADDYFILE="/path/to/proxy/Caddyfile"
-VHOSTS=$(grep -oE 'https?://[A-Za-z0-9.*-]+\.example\.local' "$CADDYFILE" 2>/dev/null \
+VHOSTS=$(sed 's/#.*//' "$CADDYFILE" 2>/dev/null \
+  | grep -oE 'https?://[A-Za-z0-9.*-]+\.example\.local' \
   | sed 's|.*://||' | grep -v '\*' | sort -u)
-SVC_TOTAL=0; SVC_BAD=0
+SVC_TOTAL=0; SVC_CRIT=0; SVC_WARN=0
 for h in $VHOSTS; do
   # Skip vhosts whose backend container is intentionally stopped: their 502 is
   # the expected consequence, not an incident. Match on the first label.
@@ -86,17 +101,20 @@ for h in $VHOSTS; do
   [ -z "$CODE" ] && CODE=000
   case "$CODE" in
     000)
-      SVC_BAD=$((SVC_BAD+1)); echo "CHECK svc-$h CRIT — no response via proxy (timeout/refused)" ;;
+      SVC_CRIT=$((SVC_CRIT+1)); echo "CHECK svc-$h CRIT — no response via proxy (timeout/refused)" ;;
     502|503|504)
-      SVC_BAD=$((SVC_BAD+1)); echo "CHECK svc-$h CRIT — HTTP $CODE via proxy (backend down?)" ;;
+      SVC_CRIT=$((SVC_CRIT+1)); echo "CHECK svc-$h CRIT — HTTP $CODE via proxy (backend down?)" ;;
     5??)
-      SVC_BAD=$((SVC_BAD+1)); echo "CHECK svc-$h WARN — HTTP $CODE (app answering but erroring)" ;;
+      SVC_WARN=$((SVC_WARN+1)); echo "CHECK svc-$h WARN — HTTP $CODE (app answering but erroring)" ;;
   esac
 done
+SVC_BAD=$((SVC_CRIT+SVC_WARN))
 if [ "$SVC_TOTAL" -eq 0 ]; then
   echo "CHECK services WARN — no vhosts parsed from $CADDYFILE (file moved?)"
-elif [ "$SVC_BAD" -eq 0 ]; then
-  echo "CHECK services OK — $SVC_TOTAL/$SVC_TOTAL vhosts responding via proxy"
+elif [ "$SVC_CRIT" -gt 0 ]; then
+  echo "CHECK services CRIT — $((SVC_TOTAL-SVC_BAD))/$SVC_TOTAL vhosts OK ($SVC_CRIT crit, $SVC_WARN warn), failures above"
+elif [ "$SVC_WARN" -gt 0 ]; then
+  echo "CHECK services WARN — $((SVC_TOTAL-SVC_BAD))/$SVC_TOTAL vhosts OK ($SVC_WARN warn), warnings above"
 else
-  echo "CHECK services CRIT — $((SVC_TOTAL-SVC_BAD))/$SVC_TOTAL vhosts OK, failures above"
+  echo "CHECK services OK — $SVC_TOTAL/$SVC_TOTAL vhosts responding via proxy"
 fi

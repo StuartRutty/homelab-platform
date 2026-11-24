@@ -26,7 +26,11 @@ TRIVY_CACHE_VOL = "trivy_cache"
 MAX_SCAN_PER_RUN = int(os.environ.get("SWEEP_MAX_SCAN", "12"))  # cap runtime on a low-power host
 SCAN_MAX_AGE_DAYS = 21         # rescan unchanged images at least this often
 
-ET = timezone(timedelta(hours=-4))  # EDT; the fleet runs America/New_York
+try:
+    from zoneinfo import ZoneInfo
+    ET = ZoneInfo("America/New_York")
+except Exception:
+    ET = timezone(timedelta(hours=-4))  # fallback if ZoneInfo/tzdata is unavailable
 
 def run(cmd, timeout=120, stdin_data=None):
     try:
@@ -159,9 +163,9 @@ def main():
     per_image = {}
     budget = MAX_SCAN_PER_RUN
     for name, image, cid in container_rows:
-        iid = cache.get(image, {}).get("id") or image_id(image)
+        iid = image_id(image)
         entry = cache.get(image)
-        fresh = bool(entry and entry.get("id") == iid
+        fresh = bool(iid and entry and entry.get("id") == iid
                      and time.time() - entry.get("scanned_at", 0) < SCAN_MAX_AGE_DAYS * 86400)
         if fresh:
             cached.append(image)

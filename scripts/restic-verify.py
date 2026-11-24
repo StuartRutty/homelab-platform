@@ -14,6 +14,7 @@ A backup that has never been restored is a hypothesis. This runs monthly.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 REPO = r"/srv/restic-repo"
 RESTIC = r"/usr/local/bin/restic"
@@ -85,15 +87,17 @@ def step_restore_db(scratch: str) -> None:
         failures.append(f"restore {DB_TAG}@{snap}: {DB_INCLUDE} missing after restore")
         return
     try:
-        con = sqlite3.connect(f"file:{restored}?mode=ro", uri=True)
-        integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
-        recipes = con.execute("select count(*) from recipes").fetchone()[0]
-        con.close()
+        db_uri = f"{Path(restored).resolve().as_uri()}?mode=ro&immutable=1"
+        with contextlib.closing(sqlite3.connect(db_uri, uri=True)) as con:
+            integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
+            recipes = con.execute("select count(*) from recipes").fetchone()[0]
     except Exception as exc:  # noqa: BLE001 - any failure here is the finding
         failures.append(f"restored app db will not open: {type(exc).__name__}: {exc}")
         return
     if integrity != "ok":
         failures.append(f"restored app db integrity_check = {integrity!r}")
+    elif not recipes:
+        failures.append("restored app db has 0 recipes")
     else:
         notes.append(f"db ok ({recipes} recipes, {os.path.getsize(restored) // 1024} KiB)")
 
@@ -110,7 +114,8 @@ def step_restore_config(scratch: str) -> None:
     if not os.path.isfile(restored):
         failures.append(f"restore {CFG_TAG}@{snap}: {CFG_INCLUDE} missing after restore")
         return
-    body = open(restored, "r", encoding="utf-8", errors="replace").read()
+    with open(restored, "r", encoding="utf-8", errors="replace") as f:
+        body = f.read()
     if len(body) < 500 or "example.local" not in body:
         failures.append(f"restored proxy config looks wrong ({len(body)} bytes, no 'example.local')")
     else:

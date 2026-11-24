@@ -24,9 +24,11 @@ or API path is NEW, CHANGED, or drifted, and when an expected host disappears.
 --init seeds the root expectations, --init-api seeds the API expectations.
 """
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -54,6 +56,7 @@ API_PROBES = {
 
 def vhosts():
     text = CADDY.read_text(encoding="utf-8", errors="ignore")
+    text = re.sub(r"#.*", "", text)
     hosts = set()
     for m in re.finditer(r"(?:https?://)?([a-z0-9][a-z0-9.-]*\.example\.local)", text, re.I):
         hosts.add(m.group(1).lower())
@@ -112,27 +115,66 @@ def classify_api(host, path):
         return "bypass"
     return "unreachable"  # answered but not by the edge
 
+def _write_json(path, data):
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
 def diff(current, expect_path, state_path, kind):
-    expected = json.loads(expect_path.read_text(encoding="utf-8")) if expect_path.exists() else {}
-    prev = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
     lines = []
+    expected = {}
+    if expect_path.exists():
+        try:
+            expected = json.loads(expect_path.read_text(encoding="utf-8"))
+            if not isinstance(expected, dict):
+                raise ValueError("expected JSON object")
+        except (OSError, ValueError) as exc:
+            lines.append("- ERROR %s expectations `%s`: %s" % (kind, expect_path.name, exc))
+            return lines
+    prev = {}
+    if state_path.exists():
+        try:
+            prev = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(prev, dict):
+                raise ValueError("expected JSON object")
+        except (OSError, ValueError) as exc:
+            lines.append("- ERROR %s state `%s`: %s" % (kind, state_path.name, exc))
+            prev = {}
     for host, now in sorted(current.items()):
         want = expected.get(host)
+        if want == "ignore":
+            continue
         if want is None:
             lines.append("- NEW %s `%s` -> %s (not in expectations)" % (kind, host, now))
-        elif want != "ignore" and want != now:
+        elif want != now:
             lines.append("- CHANGED %s `%s`: expected %s, now %s" % (kind, host, want, now))
         elif prev.get(host) and prev[host] != now:
             lines.append("- DRIFT %s `%s`: was %s, now %s" % (kind, host, prev[host], now))
     for host in expected:
         if host not in current and expected.get(host) != "ignore":
             lines.append("- GONE %s `%s` was %s, no longer probed" % (kind, host, expected[host]))
-    state_path.write_text(json.dumps(current, indent=1, sort_keys=True), encoding="utf-8")
+    try:
+        _write_json(state_path, current)
+    except OSError as exc:
+        lines.append("- ERROR %s state write `%s`: %s" % (kind, state_path.name, exc))
     return lines
 
 def main():
     argv = sys.argv
-    hosts = vhosts()
+    try:
+        hosts = vhosts()
+    except OSError as exc:
+        print("Exposure audit (edge headers, public-resolver lookup):")
+        print("- ERROR caddyfile `%s`: %s" % (CADDY, exc))
+        return
     if "--init" in argv:
         current = {h: classify(h) for h in hosts}
         EXPECT.write_text(json.dumps(current, indent=1, sort_keys=True), encoding="utf-8")

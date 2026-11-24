@@ -7,8 +7,9 @@ this tells you your CURRENT image is exploitable - an image built before a
 runtime CVE stays vulnerable until someone rebuilds upstream AND you pull.
 
 Design notes:
-- One trivy invocation per image: the vuln DB loads once per host run.
-- Named volume trivy-cache keeps the DB between runs (first run downloads).
+- One --download-db-only invocation per host refreshes the vuln DB before the
+  per-image loop; per-image invocations skip DB updates and reuse the cache.
+- Named volume trivy-cache keeps the DB between runs.
 - --ignore-unfixed: only report CVEs with an available fix (actionable).
 - The media host is scanned via ssh docker (its daemon is remote).
 """
@@ -27,6 +28,10 @@ def run(cmd, timeout=600):
 def host_images(remote=False):
     cmd = SSH + ["docker ps --format '{{.Image}}'"] if remote else ["docker", "ps", "--format", "{{.Image}}"]
     out = run(cmd, timeout=120)
+    if out.returncode != 0:
+        detail = (out.stderr or out.stdout or "").strip().splitlines()
+        msg = detail[-1][:160] if detail else ("exit %d" % out.returncode)
+        raise RuntimeError("docker ps failed (exit %d): %s" % (out.returncode, msg))
     lines = [l.strip() for l in out.stdout.splitlines() if l.strip()]
     seen, keep = set(), []
     for img in lines:
@@ -35,10 +40,27 @@ def host_images(remote=False):
             keep.append(img)
     return keep
 
+def refresh_db(remote=False):
+    """Refresh the cached Trivy vulnerability DB once per host before scanning."""
+    inner = ("docker run --rm -v trivy-cache:/root/.cache "
+             "-e TRIVY_SKIP_CHECK_UPDATE=true %s image --download-db-only "
+             "--quiet --no-progress" % TRIVY_IMAGE)
+    cmd = SSH + [inner] if remote else inner.split()
+    try:
+        res = run(cmd, timeout=300)
+    except subprocess.TimeoutExpired:
+        return "vuln DB refresh timed out"
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip().splitlines()
+        msg = detail[-1][:160] if detail else ("exit %d" % res.returncode)
+        return "vuln DB refresh failed (exit %d): %s" % (res.returncode, msg)
+    return None
+
 def scan(images, remote=False):
     """Trivy (2026 builds) accepts ONE target per invocation, so loop per image.
-    The cache volume keeps the vuln DB warm between invocations and runs."""
+    Per-image runs skip DB updates; refresh_db() updates the cache once per host."""
     findings = {}
+    errors = []
     for image in images:
         inner = ("docker run --rm -v trivy-cache:/root/.cache "
                  "-v /var/run/docker.sock:/var/run/docker.sock -e TRIVY_SKIP_DB_UPDATE=true -e TRIVY_SKIP_CHECK_UPDATE=true %s image --quiet "
@@ -48,14 +70,21 @@ def scan(images, remote=False):
         try:
             res = run(cmd, timeout=300)
         except subprocess.TimeoutExpired:
-            findings.setdefault(image, {"crit": set(), "high": set()})
+            errors.append((image, "timed out"))
+            continue
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or "").strip().splitlines()
+            msg = detail[-1][:160] if detail else ("exit %d" % res.returncode)
+            errors.append((image, "exit %d: %s" % (res.returncode, msg)))
             continue
         text = (res.stdout or "").strip()
         if "{" not in text:
+            errors.append((image, "unparseable output (no JSON)"))
             continue
         try:
             data = json.loads(text[text.index("{"):])
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError) as exc:
+            errors.append((image, "unparseable JSON: %s" % str(exc)[:120]))
             continue
         for target in data.get("Results", []):
             vulns = target.get("Vulnerabilities") or []
@@ -67,9 +96,9 @@ def scan(images, remote=False):
                 entry = findings.setdefault(image, {"crit": set(), "high": set()})
                 entry["crit"].update(crit)
                 entry["high"].update(high)
-    return findings
+    return findings, errors
 
-def report(host, findings, out):
+def report(host, findings, errors, out):
     """Critical lines detail the CVEs; high-only findings compress to one line
     (weekly scanner noise from base images otherwise buries the signal)."""
     highs = []
@@ -84,14 +113,20 @@ def report(host, findings, out):
             highs.append("%s: %d" % (image, h))
     if highs:
         out.append("- HIGH-only (%d images): %s" % (len(highs), "; ".join(highs[:6])))
+    for image, err in errors:
+        out.append("- ERROR %s `%s`: %s" % (host, image, err))
 
 def main():
     out = []
     for host, remote in (("primary", False), ("media", True)):
         try:
             imgs = [i for i in host_images(remote) if "aquasec/trivy" not in i]
-            findings = scan(imgs, remote)
-            report(host, findings, out)
+            if imgs:
+                db_err = refresh_db(remote)
+                if db_err:
+                    out.append("- ERROR %s: %s" % (host, db_err))
+            findings, errors = scan(imgs, remote)
+            report(host, findings, errors, out)
         except subprocess.TimeoutExpired:
             out.append("- %s: SCAN TIMED OUT (trivy did not finish)" % host)
         except Exception as exc:  # noqa: BLE001 - alert path must never crash silently
