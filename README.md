@@ -21,32 +21,31 @@ design.
 | Backups | Nightly snapshots from both server hosts into one encrypted, append-only repo; retention 7 daily / 4 weekly / 6 monthly |
 | Restore assurance | A restore drill that runs **itself monthly**: integrity check plus an actual restore of live data, verified, then cleaned up |
 | Unattended assurance | A weekly container vulnerability scan across both hosts, a weekly fleet patch/CVE sweep, a weekly automated audit of public exposure against the proxy config, and a monthly scheduler-hygiene sweep |
-| Documentation | 23 markdown docs, git-versioned; the deployment pattern is a template, not folklore |
+| Documentation | Markdown docs, git-versioned; the deployment pattern is a template, not folklore |
 
 ![The platform shape](docs/platform-shape.svg)
 
-## Since the last update (Nov 23, 2026)
+## Operating posture
 
-- **The public surface shrank on purpose.** The weekly exposure audit
-  flagged a divergence between the proxy config and public DNS; the
-  resolution was to retire most per-service public names outright and
-  move day-to-day access onto the private overlay network. What remains
-  public is a short, explicit list, and the audit's baseline now matches
-  it — the audit caught the drift, a human decided it was the design.
-- **A document archive joined the platform**, deliberately LAN-only with
-  no public name at all: local embeddings for search and on-prem AI for
-  triage suggestions, so personal documents never leave the house for
+- **The public surface is deliberately small.** A weekly exposure audit
+  compares public DNS against the proxy config; when it flagged a
+  divergence, the resolution was to retire most per-service public
+  names outright and move day-to-day access onto the private overlay
+  network. What remains public is a short, explicit list — the audit
+  catches drift, a human decides whether it's the design.
+- **The document archive is LAN-only by design**, with no public name
+  at all: local embeddings for search and on-prem AI for triage
+  suggestions, so personal documents never leave the house for
   indexing.
-- **The agent gateway's allowlist grew by exactly eight routes** —
-  media-file deletes for library maintenance, numeric IDs only — after a
-  review chose narrow gateway expansion over blanket shell access for
-  the agent. The refusal list grew too; both are in the gateway doc's
-  spirit: least privilege is a list you maintain, not a posture.
-- **The living-room PC is being recommissioned** as a headless
-  infrastructure node: second DNS resolver, monitoring, and small
-  on-prem models for utility work (transcription, summaries,
-  classification), leaving the media host's GPU to interactive jobs.
-  Planned and in progress, not yet live.
+- **The agent gateway grows by reviewed routes, not by access.** New
+  capability arrives as narrow allowlist additions (for example,
+  media-file deletes for library maintenance, numeric IDs only) chosen
+  over blanket shell access, and the refusal list grows alongside:
+  least privilege is a list you maintain, not a posture.
+- **A third node is being recommissioned**: the living-room PC as a
+  headless infrastructure node — second DNS resolver, monitoring, and
+  small on-prem models for utility work (transcription, summaries,
+  classification) — leaving the media host's GPU to interactive jobs.
 
 ## Start with the interesting parts
 
@@ -104,8 +103,8 @@ design.
    willingness to refuse a route entirely when the upstream app can't be
    exposed safely.
 6. **Write it down or it didn't happen.** Threat model, deployment pattern,
-   incident post-mortems, per-host inventory — 23 documents, versioned, and
-   updated as part of the work rather than after it.
+   incident post-mortems, per-host inventory — all versioned, and updated
+   as part of the work rather than after it.
 
 ---
 
